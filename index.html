@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>🐘🐬🐭 Animal To-Do v2.4-fixed</title>
+<style>
+:root{
+  --bg:#F4EFE6;
+  --card:#FFFFFF;
+  --accent:#3F6F3F;
+  --accent-soft:#E4F0E4;
+  --text:#2E2E2E;
+  --muted:#8A8A8A;
+  --line:rgba(0,0,0,.08);
+  --radius:20px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+.wrap{max-width:720px;margin:auto;padding:24px;}
+h1{font-size:22px;margin:12px 0 18px;}
+.card{background:var(--card);border-radius:var(--radius);padding:18px;margin-bottom:16px;box-shadow:0 12px 35px rgba(0,0,0,.06);}
+.cat-card{cursor:pointer;border-left:8px solid var(--accent);font-weight:800;font-size:20px;}
+.count{font-size:13px;color:var(--muted);margin-top:6px;}
+
+button{border:none;font-weight:800;cursor:pointer;}
+.btn-secondary{background:white;border:1px solid var(--line);padding:10px 16px;border-radius:14px;}
+.btn-tag{background:#F2F2F2;color:#111;padding:10px 16px;border-radius:14px;margin-right:8px;margin-bottom:8px;}
+.btn-tag.active{background:var(--accent);color:white;}
+
+.btn-add-pill{
+  width:100%;
+  margin-top:16px;
+  padding:14px 0;
+  border-radius:999px;
+  background:var(--accent);
+  color:white;
+  font-size:16px;
+  box-shadow:0 10px 20px rgba(0,0,0,.08);
+}
+
+.row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line);}
+.row:last-child{border-bottom:none;}
+.left-group{display:flex;align-items:center;gap:12px;min-width:0;}
+.title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.title.done{text-decoration:line-through;color:var(--muted);opacity:0.7;}
+.tag{
+  font-size:12px;background:var(--accent-soft);color:var(--accent);
+  padding:5px 10px;border-radius:999px;font-weight:800;cursor:pointer;white-space:nowrap;
+}
+.tag:hover{opacity:0.82;}
+.divider{margin:14px 0;font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.4px;}
+
+input[type=text],textarea{width:100%;padding:12px;border-radius:14px;border:1px solid var(--line);margin-bottom:12px;font-size:15px;background:#fff;}
+
+/* ✅ Auto-grow textarea */
+textarea{
+  min-height:40px;      /* start compact (roughly one line) */
+  resize:none;          /* user cannot drag resize */
+  overflow:hidden;      /* no scrollbar; it grows instead */
+}
+
+.section-title{font-size:12px;font-weight:900;color:var(--muted);text-transform:uppercase;margin:10px 0 6px;letter-spacing:.4px;}
+.small{font-size:12px;color:var(--muted);margin-top:14px;}
+.photo-preview{max-width:100%;border-radius:14px;margin-top:10px;box-shadow:0 10px 25px rgba(0,0,0,.08);}
+.right-icon{font-size:18px;min-width:22px;text-align:right;}
+
+.hidden{display:none !important;}
+
+/* Photo buttons: labels styled as buttons (reliable on Android) */
+.photo-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+.photo-actions label{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:12px 14px;border-radius:16px;
+  font-weight:900;cursor:pointer;user-select:none;
+  font-size:15px;
+  flex:1 1 180px;
+}
+.lbl-camera{
+  background:var(--accent);color:white;
+  box-shadow:0 10px 20px rgba(0,0,0,.08);
+}
+.lbl-gallery{
+  background:#F2F2F2;color:#111;
+}
+.photo-actions label:active{transform:translateY(1px);}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+/* ===== Stable storage + migration ===== */
+const STORAGE_KEY = "animal_tasks_main";
+const LEGACY_KEYS = ["animal_tasks_v16","animal_tasks_v17","animal_tasks_v18","animal_tasks_v19","animal_tasks_v20"];
+
+const CATEGORIES = {
+  olifant:{label:"🐘 OLIFANT", icon:"🐘"},
+  dolfijn:{label:"🐬 DOLFIJN", icon:"🐬"},
+  muis:{label:"🐭 MUIS", icon:"🐭"},
+};
+const TAGS = ["klussen","hobby","huishouden","overige"];
+
+let state = {
+  tasks: [],
+  drafts: { olifant:"", dolfijn:"", muis:"" },
+  selectedTag: "klussen",
+  view: { name:"home", param:null }
+};
+
+function load(){
+  let raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw){
+    for(const k of LEGACY_KEYS){
+      const v = localStorage.getItem(k);
+      if(v && v.length > 2){ raw = v; break; }
+    }
+    if(raw){ localStorage.setItem(STORAGE_KEY, raw); }
+  }
+  try{ state.tasks = JSON.parse(raw || "[]"); }
+  catch{ state.tasks = []; }
+
+  // restore view (helps if Android reloads after camera)
+  try{
+    const v = JSON.parse(sessionStorage.getItem("animal_view") || "null");
+    if(v && typeof v.name === "string"){ state.view = v; }
+  }catch{}
+}
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks)); }
+function persistView(){ sessionStorage.setItem("animal_view", JSON.stringify(state.view)); }
+
+function formatDate(ts){
+  const d=new Date(ts);
+  return String(d.getDate()).padStart(2,"0")+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+d.getFullYear();
+}
+function getTask(id){ return state.tasks.find(t=>t.id===id); }
+function openCount(cat){ return state.tasks.filter(t=>t.category===cat && !t.done).length; }
+function setView(name,param=null){ state.view={name,param}; persistView(); render(); }
+
+function addTask(category){
+  const title=(state.drafts[category]||"").trim();
+  if(!title) return;
+  state.tasks.push({
+    id:(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()),
+    title,category,tag:state.selectedTag,done:false,description:"",photo:null,createdAt:Date.now()
+  });
+  state.drafts[category]="";
+  save();
+  setView("category",category);
+}
+function toggleDone(id){ const t=getTask(id); if(!t)return; t.done=!t.done; save(); }
+function updateTitle(id,v){ const t=getTask(id); if(!t)return; t.title=v; save(); }
+function updateDescription(id,v){ const t=getTask(id); if(!t)return; t.description=v; save(); }
+function setPhoto(id,url){ const t=getTask(id); if(!t)return; t.photo=url; save(); }
+function clearPhoto(id){ setPhoto(id,null); }
+
+function el(tag,attrs={},children=[]){
+  const n=document.createElement(tag);
+  for(const[k,v]of Object.entries(attrs)){
+    if(k==="class")n.className=v;
+    else if(k==="text")n.textContent=v;
+    else if(k==="html")n.innerHTML=v;
+    else if(k.startsWith("on"))n.addEventListener(k.slice(2),v);
+    else n.setAttribute(k,v);
+  }
+  children.forEach(c=>n.appendChild(c));
+  return n;
+}
+
+function readImageFileToDataUrl(file, cb){
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=evt=>cb(evt.target.result);
+  r.readAsDataURL(file);
+}
+
+/* ✅ textarea auto-grow helper */
+function autoGrow(ta){
+  ta.style.height = "auto";
+  ta.style.height = ta.scrollHeight + "px";
+}
+
+function renderTaskRow(task,opts){
+  const row=el("div",{class:"row"});
+  const left=el("div",{class:"left-group"});
+  const cb=el("input",{type:"checkbox"});
+  cb.checked=task.done;
+  cb.onclick=(e)=>{e.stopPropagation();toggleDone(task.id);render();};
+  const title=el("div",{class:"title"+(task.done?" done":""),text:task.title});
+  title.onclick=()=>setView("detail",task.id);
+  left.appendChild(cb);left.appendChild(title);
+
+  let right;
+  if(opts.showRight==="tag"){
+    right=el("span",{class:"tag",text:task.tag});
+    right.onclick=(e)=>{e.stopPropagation();setView("tag",task.tag);};
+  }else{
+    right=el("span",{class:"right-icon",text:CATEGORIES[task.category]?.icon||""});
+  }
+  row.appendChild(left);row.appendChild(right);
+  return row;
+}
+
+function renderHome(){
+  app.innerHTML="";
+  app.appendChild(el("h1",{text:"Animal To-Do"}));
+
+  const tagCard=el("div",{class:"card"});
+  TAGS.forEach(t=>{
+    const b=el("span",{class:"tag",text:t});
+    b.onclick=()=>setView("tag",t);
+    tagCard.appendChild(b);tagCard.appendChild(document.createTextNode(" "));
+  });
+  app.appendChild(tagCard);
+
+  Object.keys(CATEGORIES).forEach(cat=>{
+    const card=el("div",{class:"card cat-card"});
+    card.innerHTML=`${CATEGORIES[cat].label}<div class='count'>${openCount(cat)} open taken</div>`;
+    card.onclick=()=>setView("category",cat);
+    app.appendChild(card);
+  });
+}
+
+function renderCategory(cat){
+  app.innerHTML="";
+  app.appendChild(el("button",{class:"btn-secondary",text:"← Terug",onclick:()=>setView("home")}));
+  app.appendChild(el("h1",{text:CATEGORIES[cat].label}));
+
+  const addCard=el("div",{class:"card"});
+  const input=el("input",{type:"text",placeholder:"Nieuwe taak..."});
+  input.value=state.drafts[cat]||"";
+  input.oninput=e=>state.drafts[cat]=e.target.value;
+  input.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTask(cat);}};
+  addCard.appendChild(input);
+
+  TAGS.forEach(t=>{
+    const b=el("button",{class:"btn-tag"+(t===state.selectedTag?" active":""),text:t});
+    b.onclick=()=>{state.selectedTag=t;renderCategory(cat);};
+    addCard.appendChild(b);
+  });
+
+  const addBtn=el("button",{class:"btn-add-pill",text:"Toevoegen"});
+  addBtn.onclick=()=>addTask(cat);
+  addCard.appendChild(addBtn);
+
+  app.appendChild(addCard);
+
+  const list=el("div",{class:"card"});
+  const openTasks=state.tasks.filter(t=>t.category===cat&&!t.done);
+  const doneTasks=state.tasks.filter(t=>t.category===cat&&t.done);
+
+  openTasks.forEach(t=>list.appendChild(renderTaskRow(t,{showRight:"tag"})));
+  if(doneTasks.length){
+    list.appendChild(el("div",{class:"divider",text:"Afgerond"}));
+    doneTasks.forEach(t=>list.appendChild(renderTaskRow(t,{showRight:"tag"})));
+  }
+  app.appendChild(list);
+}
+
+function renderTag(tag){
+  app.innerHTML="";
+  app.appendChild(el("button",{class:"btn-secondary",text:"← Terug",onclick:()=>setView("home")}));
+  app.appendChild(el("h1",{text:`Tag: ${tag}`}));
+  const list=el("div",{class:"card"});
+
+  const tagged=state.tasks.filter(t=>t.tag===tag);
+  const openTasks=tagged.filter(t=>!t.done);
+  const doneTasks=tagged.filter(t=>t.done);
+
+  openTasks.forEach(t=>list.appendChild(renderTaskRow(t,{showRight:"categoryIcon"})));
+  if(doneTasks.length){
+    list.appendChild(el("div",{class:"divider",text:"Afgerond"}));
+    doneTasks.forEach(t=>list.appendChild(renderTaskRow(t,{showRight:"categoryIcon"})));
+  }
+  app.appendChild(list);
+}
+
+/* ===== Return-refresh (safe) ===== */
+let pendingReturnTaskId = null;
+let pendingReturnUntil = 0;
+function markPendingReturn(taskId){
+  pendingReturnTaskId = taskId;
+  pendingReturnUntil = Date.now() + 6000;
+}
+function maybeRefreshAfterReturn(){
+  if(!pendingReturnTaskId) return;
+  if(Date.now() > pendingReturnUntil){
+    pendingReturnTaskId = null;
+    return;
+  }
+  if(state.view.name !== "detail" || state.view.param !== pendingReturnTaskId){
+    state.view = {name:"detail", param: pendingReturnTaskId};
+    persistView();
+  }
+  render();
+}
+
+function renderDetail(id){
+  const task=getTask(id); if(!task){setView("home");return;}
+  app.innerHTML="";
+  app.appendChild(el("button",{class:"btn-secondary",text:"← Terug",onclick:()=>setView("category",task.category)}));
+
+  const card=el("div",{class:"card"});
+
+  card.appendChild(el("div",{class:"section-title",text:"Titel"}));
+  const ti=el("input",{type:"text"}); ti.value=task.title;
+  ti.oninput=e=>updateTitle(task.id,e.target.value);
+  card.appendChild(ti);
+
+  card.appendChild(el("div",{class:"section-title",text:"Extra informatie"}));
+  const ta=el("textarea",{}); 
+  ta.value=task.description||"";
+
+  // ✅ auto-grow on input + initial
+  const handleTA = ()=>{ updateDescription(task.id, ta.value); autoGrow(ta); };
+  ta.addEventListener("input", handleTA);
+  // initial grow (after it is in DOM)
+  setTimeout(()=>autoGrow(ta), 0);
+
+  card.appendChild(ta);
+
+  card.appendChild(el("div",{class:"section-title",text:"Foto"}));
+
+  const camId = "cam_" + task.id;
+  const galId = "gal_" + task.id;
+
+  const cameraInput = el("input", {id:camId, type:"file", accept:"image/*", capture:"environment", class:"hidden"});
+  const galleryInput = el("input", {id:galId, type:"file", accept:"image/*", class:"hidden"});
+
+  function handlePick(e){
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if(!f) return;
+    markPendingReturn(task.id);
+    readImageFileToDataUrl(f, (dataUrl)=>{
+      setPhoto(task.id, dataUrl);
+      renderDetail(task.id);
+    });
+  }
+  cameraInput.addEventListener("change", handlePick);
+  galleryInput.addEventListener("change", handlePick);
+
+  const actions = el("div", {class:"photo-actions"});
+  const lblCam = el("label", {class:"lbl-camera", for:camId, text:"📷 Maak foto"});
+  const lblGal = el("label", {class:"lbl-gallery", for:galId, text:"🖼 Kies uit galerij"});
+  actions.appendChild(lblCam);
+  actions.appendChild(lblGal);
+
+  card.appendChild(actions);
+  card.appendChild(cameraInput);
+  card.appendChild(galleryInput);
+
+  if(task.photo){
+    card.appendChild(el("img",{class:"photo-preview",src:task.photo}));
+    const rm=el("button",{class:"btn-secondary",text:"Verwijder foto"});
+    rm.style.marginTop="10px";
+    rm.onclick=()=>{clearPhoto(task.id); renderDetail(task.id);};
+    card.appendChild(rm);
+  }
+
+  card.appendChild(el("div",{class:"small",text:`aanmaakdatum ${formatDate(task.createdAt)}`}));
+  app.appendChild(card);
+}
+
+function render(){
+  const v=state.view;
+  persistView();
+  if(v.name==="home")return renderHome();
+  if(v.name==="category")return renderCategory(v.param);
+  if(v.name==="tag")return renderTag(v.param);
+  if(v.name==="detail")return renderDetail(v.param);
+  renderHome();
+}
+
+// lightweight return hooks (no task reload)
+window.addEventListener("focus", ()=> setTimeout(maybeRefreshAfterReturn, 60));
+window.addEventListener("pageshow", ()=> setTimeout(maybeRefreshAfterReturn, 60));
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState === "visible"){
+    setTimeout(maybeRefreshAfterReturn, 60);
+  }
+});
+
+load();
+render();
+</script>
+</body>
+</html>
